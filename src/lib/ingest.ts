@@ -124,7 +124,7 @@ export async function ingestFile(filePath: string): Promise<{ ok: boolean; messa
   }
 }
 
-export async function ingestNewFiles(inboxPath: string, todayOnly = true): Promise<string[]> {
+export async function ingestNewFiles(inboxPath: string, todayOnly = false): Promise<string[]> {
   const fs = await import('fs');
   const path = await import('path');
 
