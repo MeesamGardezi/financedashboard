@@ -99,23 +99,25 @@ function detectAccountType(text: string): ExtractedAccount['accountType'] {
 }
 
 function detectAccountLast4(text: string): string {
-  // Patterns: "...0020", "x2331", "ending in 1234", "****1234", "last 4: 1234"
   const patterns = [
     /\.\.\.([\d]{4})/,
-    /x([\d]{4})\b/i,
+    /…([\d]{4})/,          // ellipsis character
+    /x{1,4}([\d]{4})\b/i,
     /ending in ([\d]{4})/i,
     /\*+([\d]{4})/,
     /last 4[:\s]+([\d]{4})/i,
-    /·([\d]{4})\b/,
-    /-([\d]{4})\b(?=\s|$)/,
+    /[·•\-]([\d]{4})\b/,
+    /account[^\d]{0,20}([\d]{4})\b/i,
+    /acct[^\d]{0,10}([\d]{4})\b/i,
+    // "5604" appearing after account type words in the page title area
+    /(?:checking|savings|credit card|card)[^\d]{0,30}([\d]{4})\b/i,
+    // Last 4 digits of a sequence like "...1234" anywhere
+    /(?<!\d)([\d]{4})(?!\d)(?=\s*$)/m,
   ];
   for (const p of patterns) {
     const m = text.match(p);
     if (m) return m[1];
   }
-  // Look for standalone 4-digit sequences that appear near account-related words
-  const m = text.match(/account[^\d]*([\d]{4})/i);
-  if (m) return m[1];
   return 'XXXX';
 }
 
@@ -227,24 +229,52 @@ function extractBalances(text: string): {
     isOverLimit: false,
   };
 
-  const lines = text.split('\n');
+  const lines = text.split('\n').map(l => l.trim());
 
-  for (const line of lines) {
-    const lower = line.toLowerCase();
+  // Helper: get money from this line OR the next 1-2 lines (label on one line, value on next)
+  function getMoneyNearby(idx: number): number | null {
+    const val = parseMoney(lines[idx]);
+    if (val !== null) return val;
+    // Check next line
+    if (idx + 1 < lines.length) {
+      const v2 = parseMoney(lines[idx + 1]);
+      if (v2 !== null) return v2;
+    }
+    if (idx + 2 < lines.length) {
+      const v3 = parseMoney(lines[idx + 2]);
+      if (v3 !== null) return v3;
+    }
+    return null;
+  }
+
+  function getDateNearby(idx: number): string | null {
+    const v = parseDate(lines[idx]);
+    if (v) return v;
+    if (idx + 1 < lines.length) return parseDate(lines[idx + 1]);
+    return null;
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
 
     if (/available balance/i.test(line) || /available:/i.test(line)) {
-      result.available = parseMoney(line);
-    } else if (/present balance/i.test(line) || /current balance/i.test(line)) {
-      result.current = parseMoney(line);
-      result.present = result.current;
-    } else if (/\bbalance\b/i.test(line) && !result.current) {
-      result.current = parseMoney(line);
+      result.available = getMoneyNearby(i);
+    } else if (/present balance/i.test(line)) {
+      const v = getMoneyNearby(i);
+      result.present = v;
+      if (!result.current) result.current = v;
+    } else if (/current balance/i.test(line)) {
+      const v = getMoneyNearby(i);
+      result.current = v;
+      if (!result.present) result.present = v;
+    } else if (/\bbalance\b/i.test(line) && !result.current && !result.available) {
+      result.current = getMoneyNearby(i);
     } else if (/credit limit/i.test(line) || /total credit line/i.test(line)) {
-      result.creditLimit = parseMoney(line);
+      result.creditLimit = getMoneyNearby(i);
     } else if (/minimum payment/i.test(line) || /min.*due/i.test(line) || /minimum due/i.test(line)) {
-      result.minPayment = parseMoney(line);
+      result.minPayment = getMoneyNearby(i);
     } else if (/payment due/i.test(line) || /due date/i.test(line)) {
-      result.dueDate = parseDate(line);
+      result.dueDate = getDateNearby(i);
     } else if (/over.*limit|over limit|over-limit/i.test(line)) {
       result.isOverLimit = true;
     }
