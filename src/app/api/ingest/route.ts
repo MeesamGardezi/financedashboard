@@ -13,7 +13,8 @@ export async function POST(req: NextRequest) {
 
     // Ingest all new files in inbox
     const inboxPath = process.env.INBOX_PATH || './inbox';
-    const messages = await ingestNewFiles(inboxPath);
+    // todayOnly=false: the dedicated Bank SS folder is the filter, no date restriction needed
+    const messages = await ingestNewFiles(inboxPath, false);
     return NextResponse.json({ ok: true, messages });
   } catch (err) {
     return NextResponse.json({ ok: false, message: String(err) }, { status: 500 });
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   try {
     const inboxPath = process.env.INBOX_PATH || './inbox';
-    const messages = await ingestNewFiles(inboxPath);
+    const messages = await ingestNewFiles(inboxPath, false);
     return NextResponse.json({ ok: true, messages });
   } catch (err) {
     return NextResponse.json({ ok: false, message: String(err) }, { status: 500 });
