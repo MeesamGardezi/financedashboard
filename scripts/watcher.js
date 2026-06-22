@@ -2,14 +2,17 @@
 // Runs as a separate process alongside `next dev`.
 // Uses require() so it runs without tsx/ts-node.
 
-require('dotenv').config({ path: '.env.local' });
+// Load .env.local manually without dotenv dependency
+const fs = require('fs');
+const envFile = fs.existsSync('.env.local') ? '.env.local' : '.env';
+if (fs.existsSync(envFile)) {
+  fs.readFileSync(envFile, 'utf8').split('\n').forEach(line => {
+    const m = line.match(/^([^#=]+)=(.*)$/);
+    if (m) process.env[m[1].trim()] = m[2].trim();
+  });
+}
 
 const path = require('path');
-const { register } = require('module');
-
-// We need to run TypeScript. Use tsx if available, otherwise try dynamic import tricks.
-// Actually we'll just spawn the ingest as a Next.js API call to keep things simple.
-
 const chokidar = require('chokidar');
 const https = require('https');
 const http = require('http');
