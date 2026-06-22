@@ -3,7 +3,29 @@ import { getDb } from './db';
 import { extractFromImage } from './extract';
 import { makeFingerprint } from './dedup';
 
-export async function ingestFile(filePath: string): Promise<{ ok: boolean; message: string }> {
+// Keywords that must appear in OCR text for a screenshot to be considered bank-related.
+// If none of these appear, the file is skipped (it's a non-bank screenshot).
+const BANK_KEYWORDS = [
+  'chase', 'bank of america', 'bankofamerica', 'td bank', 'eastern bank', 'us bank',
+  'available balance', 'current balance', 'account balance', 'present balance',
+  'checking', 'savings', 'credit card', 'credit limit', 'minimum payment',
+  'pending', 'posted', 'transaction', 'deposit', 'withdrawal',
+  'routing number', 'account number', 'statement',
+  '$', 'balance', 'payment due',
+];
+
+function looksLikeBankScreenshot(rawText: string): boolean {
+  const lower = rawText.toLowerCase();
+  // Must match at least 3 distinct keywords to count as a bank screenshot
+  let hits = 0;
+  for (const kw of BANK_KEYWORDS) {
+    if (lower.includes(kw)) hits++;
+    if (hits >= 3) return true;
+  }
+  return false;
+}
+
+export async function ingestFile(filePath: string): Promise<{ ok: boolean; message: string; skipped?: boolean }> {
   const db = getDb();
   const filename = path.basename(filePath);
   const now = new Date().toISOString();
@@ -13,11 +35,10 @@ export async function ingestFile(filePath: string): Promise<{ ok: boolean; messa
   if (existing) return { ok: true, message: `Already processed: ${filename}` };
 
   // Insert screenshot record immediately (so duplicate runs skip it)
-  const ssInsert = db.prepare(`
+  const ssResult = db.prepare(`
     INSERT INTO screenshots (filename, filepath, processed_at, status)
     VALUES (?, ?, ?, 'processing')
-  `);
-  const ssResult = ssInsert.run(filename, filePath, now);
+  `).run(filename, filePath, now);
   const screenshotId = ssResult.lastInsertRowid as number;
 
   try {
@@ -27,6 +48,13 @@ export async function ingestFile(filePath: string): Promise<{ ok: boolean; messa
       db.prepare(`UPDATE screenshots SET status = 'error', bank_name = ? WHERE id = ?`)
         .run('Could not read image', screenshotId);
       return { ok: false, message: `Could not read image: ${filename}` };
+    }
+
+    // Check if this looks like a bank screenshot — skip if not
+    if (!looksLikeBankScreenshot(result.rawText)) {
+      db.prepare(`UPDATE screenshots SET status = 'skipped', bank_name = 'not-bank' WHERE id = ?`)
+        .run(screenshotId);
+      return { ok: true, skipped: true, message: `Skipped (not a bank screenshot): ${filename}` };
     }
 
     const { account, transactions } = result;
@@ -88,7 +116,7 @@ export async function ingestFile(filePath: string): Promise<{ ok: boolean; messa
 
     return {
       ok: true,
-      message: `${filename}: ${account.bankName} ...${account.accountLast4} — ${inserted} new transactions`,
+      message: `✓ ${filename}: ${account.bankName} ...${account.accountLast4} — ${inserted} new transactions`,
     };
   } catch (err) {
     db.prepare(`UPDATE screenshots SET status = 'error' WHERE id = ?`).run(screenshotId);
@@ -96,7 +124,7 @@ export async function ingestFile(filePath: string): Promise<{ ok: boolean; messa
   }
 }
 
-export async function ingestNewFiles(inboxPath: string): Promise<string[]> {
+export async function ingestNewFiles(inboxPath: string, todayOnly = true): Promise<string[]> {
   const fs = await import('fs');
   const path = await import('path');
 
@@ -109,17 +137,42 @@ export async function ingestNewFiles(inboxPath: string): Promise<string[]> {
     (db.prepare('SELECT filepath FROM screenshots').all() as { filepath: string }[]).map(r => r.filepath)
   );
 
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
   const files = fs.readdirSync(inboxPath)
     .filter(f => /\.(png|jpg|jpeg|webp|bmp|tiff?)$/i.test(f))
-    .map(f => path.join(inboxPath, f))
-    .filter(fp => !processed.has(fp));
+    .map(f => {
+      const fp = path.join(inboxPath, f);
+      const stat = fs.statSync(fp);
+      return { fp, mtime: stat.mtime };
+    })
+    .filter(({ fp, mtime }) => {
+      if (processed.has(fp)) return false;
+      // Only process files modified/created today
+      if (todayOnly && mtime < todayStart) return false;
+      return true;
+    })
+    .sort((a, b) => b.mtime.getTime() - a.mtime.getTime()) // newest first
+    .map(({ fp }) => fp);
 
-  if (files.length === 0) return ['No new files to process'];
+  if (files.length === 0) {
+    return todayOnly
+      ? [`No new screenshots from today found in: ${inboxPath}`]
+      : ['No new files to process'];
+  }
 
   const results: string[] = [];
+  let bankCount = 0;
+  let skipCount = 0;
+
   for (const fp of files) {
     const r = await ingestFile(fp);
+    if (r.skipped) skipCount++;
+    else if (r.ok) bankCount++;
     results.push(r.message);
   }
+
+  results.push(`— ${bankCount} bank screenshot(s) processed, ${skipCount} non-bank file(s) skipped`);
   return results;
 }
