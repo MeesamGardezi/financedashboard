@@ -1,10 +1,12 @@
 'use client';
 import type { AccountSummary } from '@/app/api/dashboard/route';
 
-function money(v: number | null, decimals = 0) {
+function money(v: number | null) {
   if (v == null) return '—';
-  return '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return '$' + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
+
+const ALL_BANKS = ['Chase', 'TD Bank', 'Bank of America', 'Eastern Bank', 'US Bank'];
 
 const BANK_COLORS: Record<string, string> = {
   'Chase': '#1a3d7a',
@@ -20,29 +22,16 @@ interface Props {
 }
 
 export default function KpiStrip({ accounts, totalCash }: Props) {
-  const banks = Array.from(new Set(accounts.map(a => a.bankName))).filter(b => b !== 'Unknown');
-
-  const bankTotals = banks.map(bank => {
-    const bankAccts = accounts.filter(a =>
-      a.bankName === bank && (a.accountType === 'checking' || a.accountType === 'savings')
-    );
-    const total = bankAccts.reduce((s, a) => s + (a.availableBalance ?? a.currentBalance ?? 0), 0);
-    const latest = bankAccts[0]?.snapshotDate || null;
-    const isStale = bankAccts.some(a => a.isStale);
-    return { bank, total, latest, isStale };
-  });
-
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: `1.4fr ${banks.map(() => '1fr').join(' ')}`,
+      gridTemplateColumns: `1.4fr ${ALL_BANKS.map(() => '1fr').join(' ')}`,
       gap: 12,
       marginBottom: 22,
     }}>
       {/* Total cash KPI */}
       <div style={{
         background: 'var(--ink)',
-        border: '1px solid var(--rule)',
         borderRadius: 10,
         padding: '18px 20px',
         position: 'relative',
@@ -56,14 +45,24 @@ export default function KpiStrip({ accounts, totalCash }: Props) {
           {money(totalCash)}
         </div>
         <div style={{ fontSize: 10, marginTop: 6, color: 'rgba(255,255,255,.4)' }}>
-          {banks.join(' · ')} · checking &amp; savings
+          checking &amp; savings · all banks
         </div>
       </div>
 
-      {/* Per-bank KPIs */}
-      {bankTotals.map(({ bank, total, latest, isStale }) => {
+      {/* Per-bank KPIs — always show all 5 */}
+      {ALL_BANKS.map(bank => {
+        const bankAccts = accounts.filter(a =>
+          a.bankName === bank && (a.accountType === 'checking' || a.accountType === 'savings')
+        );
+        const hasData = bankAccts.length > 0;
+        const total = hasData
+          ? bankAccts.reduce((s, a) => s + (a.availableBalance ?? a.currentBalance ?? 0), 0)
+          : null;
+        const latest = bankAccts[0]?.snapshotDate || null;
+        const isStale = bankAccts.some(a => a.isStale);
         const color = BANK_COLORS[bank] || '#555';
-        const balColor = total < 0 ? 'var(--red)' : isStale ? 'var(--amber)' : 'var(--ink)';
+        const balColor = total == null ? 'var(--ink4)' : total < 0 ? 'var(--red)' : isStale ? 'var(--amber)' : 'var(--ink)';
+
         return (
           <div key={bank} style={{
             background: 'var(--surface)',
@@ -81,7 +80,7 @@ export default function KpiStrip({ accounts, totalCash }: Props) {
               {money(total)}
             </div>
             <div style={{ fontSize: 10, marginTop: 6, color: 'var(--ink4)' }}>
-              {latest ? (isStale ? `carried ${latest}` : `as of ${latest}`) : 'no data'}
+              {!hasData ? 'no screenshot' : latest ? (isStale ? `carried ${latest}` : `as of ${latest}`) : 'no data'}
             </div>
           </div>
         );
