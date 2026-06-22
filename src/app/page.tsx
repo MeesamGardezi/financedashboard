@@ -6,11 +6,15 @@ import TransactionsTable from '@/components/TransactionsTable';
 import ChatBox from '@/components/ChatBox';
 import type { DashboardData } from '@/app/api/dashboard/route';
 
+const DEFAULT_INBOX = "J:\\.shortcut-targets-by-id\\1HRgCQ5gOjpeGaUjgaq3OF5a-NWIDo7AK\\Common Folder\\today\\Bank SS";
+
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanMsg, setScanMsg] = useState<string[]>([]);
+  const [inboxPath, setInboxPath] = useState(DEFAULT_INBOX);
+  const [showSettings, setShowSettings] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -33,7 +37,11 @@ export default function Dashboard() {
     setScanning(true);
     setScanMsg([]);
     try {
-      const res = await fetch('/api/ingest');
+      const res = await fetch('/api/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inboxPath }),
+      });
       const json = await res.json();
       setScanMsg(json.messages || [json.message]);
       await load();
@@ -60,36 +68,48 @@ export default function Dashboard() {
             Chase · TD Bank · Bank of America · Eastern Bank · US Bank
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            onClick={() => setShowSettings(s => !s)}
+            style={{ padding: '6px 12px', background: 'var(--rule)', color: 'var(--ink2)', border: '1px solid var(--rule)', borderRadius: 6, fontSize: 11, cursor: 'pointer', fontFamily: 'var(--font-body)' }}
+          >
+            ⚙ Folder
+          </button>
           <button
             onClick={scanInbox}
             disabled={scanning}
-            style={{
-              padding: '6px 14px',
-              background: scanning ? 'var(--rule)' : 'var(--ink)',
-              color: scanning ? 'var(--ink4)' : '#fff',
-              border: 'none',
-              borderRadius: 6,
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: scanning ? 'default' : 'pointer',
-              fontFamily: 'var(--font-body)',
-            }}
+            style={{ padding: '6px 14px', background: scanning ? 'var(--rule)' : 'var(--ink)', color: scanning ? 'var(--ink4)' : '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: scanning ? 'default' : 'pointer', fontFamily: 'var(--font-body)' }}
           >
             {scanning ? 'Scanning...' : '⟳ Scan Inbox'}
           </button>
           <div style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink4)' }}>
             {dateStr} · {timeStr}
-            {data?.lastUpdated && (
-              <div>last extracted {new Date(data.lastUpdated).toLocaleDateString()}</div>
-            )}
           </div>
         </div>
       </div>
 
+      {/* Folder settings panel */}
+      {showSettings && (
+        <div style={{ marginBottom: 16, padding: '12px 16px', background: 'var(--surface)', border: '1px solid var(--rule)', borderRadius: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: 'var(--ink3)', whiteSpace: 'nowrap' }}>Bank SS folder:</span>
+          <input
+            value={inboxPath}
+            onChange={e => setInboxPath(e.target.value)}
+            style={{ flex: 1, padding: '5px 10px', border: '1px solid var(--rule)', borderRadius: 5, fontSize: 11, fontFamily: 'var(--font-mono)', background: '#faf9f7' }}
+            placeholder="Paste your Bank SS folder path here"
+          />
+          <button
+            onClick={() => { setShowSettings(false); scanInbox(); }}
+            style={{ padding: '5px 14px', background: 'var(--ink)', color: '#fff', border: 'none', borderRadius: 5, fontSize: 11, cursor: 'pointer' }}
+          >
+            Scan
+          </button>
+        </div>
+      )}
+
       {/* Scan results */}
       {scanMsg.length > 0 && (
-        <div style={{ marginBottom: 16, padding: '10px 16px', background: '#edf8f2', border: '1px solid #b0dfc0', borderRadius: 8, fontSize: 12 }}>
+        <div style={{ marginBottom: 16, padding: '10px 16px', background: '#edf8f2', border: '1px solid #b0dfc0', borderRadius: 8, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
           {scanMsg.map((m, i) => <div key={i}>{m}</div>)}
         </div>
       )}
@@ -104,31 +124,23 @@ export default function Dashboard() {
         <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--ink4)' }}>Loading...</div>
       ) : (
         <>
-          <KpiStrip accounts={data.accounts} totalCash={data.totalCash} />
+          <KpiStrip accounts={data.accounts} totalCash={data.totalCash} lastUpdated={data.lastUpdated} />
 
           <div style={{ display: 'grid', gridTemplateColumns: '308px 1fr', gap: 16, alignItems: 'start' }}>
-            {/* Left column */}
             <div>
               <AccountsPanel accounts={data.accounts} />
               <CreditPanel accounts={data.accounts} />
               <ChatBox />
             </div>
-
-            {/* Right column */}
             <div>
               <TransactionsTable transactions={data.recentTransactions} />
             </div>
           </div>
 
-          {/* Footer */}
           <div style={{ marginTop: 16, fontSize: 10, color: 'var(--ink4)', borderTop: '1px solid var(--rule)', paddingTop: 10, display: 'flex', justifyContent: 'space-between' }}>
             <span>
-              {data.accounts.length} accounts · {data.recentTransactions.length} transactions shown
-              {data.accounts.filter(a => a.isStale).length > 0 && (
-                <span style={{ color: 'var(--amber)', marginLeft: 8 }}>
-                  · ⚠ {data.accounts.filter(a => a.isStale).length} account(s) with stale data
-                </span>
-              )}
+              {data.accounts.length} accounts · {data.recentTransactions.length} transactions
+              {data.lastUpdated && <span> · last scan {new Date(data.lastUpdated).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
             </span>
             <span style={{ fontFamily: 'var(--font-mono)' }}>Financial Dashboard · Internal · {dateStr}</span>
           </div>

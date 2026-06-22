@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ingestFile, ingestNewFiles } from '@/lib/ingest';
 
-// POST /api/ingest — ingest a single file or all new files in inbox
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -11,9 +10,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: result.ok, message: result.message });
     }
 
-    // Ingest all new files in inbox
-    const inboxPath = process.env.INBOX_PATH || './inbox';
-    // todayOnly=false: the dedicated Bank SS folder is the filter, no date restriction needed
+    const inboxPath = body.inboxPath || process.env.INBOX_PATH || './inbox';
     const messages = await ingestNewFiles(inboxPath, false);
     return NextResponse.json({ ok: true, messages });
   } catch (err) {
@@ -21,10 +18,10 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET /api/ingest — trigger full inbox scan (useful for manual refresh button)
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const inboxPath = process.env.INBOX_PATH || './inbox';
+    const url = new URL(req.url);
+    const inboxPath = url.searchParams.get('path') || process.env.INBOX_PATH || './inbox';
     const messages = await ingestNewFiles(inboxPath, false);
     return NextResponse.json({ ok: true, messages });
   } catch (err) {
