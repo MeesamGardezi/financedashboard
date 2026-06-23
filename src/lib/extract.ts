@@ -137,8 +137,10 @@ function parseTransactions(text: string, bankName: string): ExtractedTransaction
     const dateCandidate = parseDate(line);
     if (dateCandidate) currentDate = dateCandidate;
 
-    // Skip header-like lines
+    // Skip header-like lines and employee card name lines (e.g. "Tom Williamson - 0389")
     if (/^(date|description|amount|balance|type|transaction|debit|credit|posted|pending)$/i.test(line)) continue;
+    // Skip employee card holder lines: "Name Name - XXXX" with no dollar amount
+    if (/^[A-Z][a-z]+ [A-Z][a-z]+ - \d{4}/.test(line) && !line.includes('$')) continue;
 
     // Look for amount patterns on this line
     const amountMatches = line.match(/[-−]?\$[\d,]+\.\d{2}/g) || line.match(/[-−]?\d+,\d{3}\.\d{2}/g);

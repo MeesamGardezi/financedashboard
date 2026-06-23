@@ -143,6 +143,7 @@ export default function Dashboard() {
           {lastUpd && <span className="good-hdr">Last scan: {lastUpd}</span>}
           <div style={{ display: 'flex', gap: 8, marginTop: 6, justifyContent: 'flex-end' }}>
             <button onClick={() => setShowFolder(s => !s)} style={{ padding: '5px 10px', background: 'var(--rule)', color: 'var(--ink2)', border: '1px solid var(--rule)', borderRadius: 5, fontSize: 10, cursor: 'pointer' }}>⚙ Folder</button>
+            <button onClick={async () => { if (confirm('Clear all data and rescan?')) { await fetch('/api/reset', { method: 'POST' }); await load(); scanInbox(); } }} style={{ padding: '5px 10px', background: 'var(--red-bg)', color: 'var(--red)', border: '1px solid #e0b0b0', borderRadius: 5, fontSize: 10, cursor: 'pointer' }}>↺ Reset</button>
             <button onClick={scanInbox} disabled={scanning} style={{ padding: '5px 12px', background: scanning ? 'var(--rule)' : 'var(--ink)', color: scanning ? 'var(--ink4)' : '#fff', border: 'none', borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: scanning ? 'default' : 'pointer' }}>
               {scanning ? 'Scanning…' : '⟳ Scan Inbox'}
             </button>

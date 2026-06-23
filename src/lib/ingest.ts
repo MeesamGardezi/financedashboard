@@ -50,13 +50,7 @@ export async function ingestFile(filePath: string): Promise<{ ok: boolean; messa
       return { ok: false, message: `Could not read image: ${filename}` };
     }
 
-    // Check if this looks like a bank screenshot — skip if not
-    if (!looksLikeBankScreenshot(result.rawText)) {
-      db.prepare(`UPDATE screenshots SET status = 'skipped', bank_name = 'not-bank' WHERE id = ?`)
-        .run(screenshotId);
-      return { ok: true, skipped: true, message: `Skipped (not a bank screenshot): ${filename}` };
-    }
-
+    // Dedicated Bank SS folder — process everything, no keyword filter needed
     const { account, transactions } = result;
 
     // Upsert account
