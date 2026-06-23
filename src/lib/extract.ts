@@ -170,9 +170,14 @@ function parseTransactions(text: string, bankName: string): ExtractedTransaction
       .replace(/\s{2,}/g, ' ')
       .trim();
 
+    // Strip trailing punctuation/dashes left over after amount removal
+    desc = desc.replace(/[\s\-.,]+$/, '').trim();
+
     if (!desc || desc.length < 3) continue;
-    // Skip employee card holder lines like "Tom Williamson - 0389" or "Mike Dulaski - 4878"
-    if (/^[A-Z][a-z]+ [A-Z][a-z]+\s*-\s*\d{4}\.?$/.test(desc)) continue;
+    // Skip employee/sub-account lines: "Name - XXXX" or "First Last - XXXX"
+    if (/^[A-Za-z][A-Za-z .'-]+ - \d{4}$/.test(desc)) continue;
+    // Skip BoA UI chrome lines (not real transactions)
+    if (/ready to help|bank of america.*\d{4}/i.test(desc)) continue;
 
     // Determine transaction type
     let txnType = 'other';
