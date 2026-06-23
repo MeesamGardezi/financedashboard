@@ -101,22 +101,29 @@ function detectAccountType(text: string): ExtractedAccount['accountType'] {
 function detectAccountLast4(text: string): string {
   const patterns = [
     /\.\.\.([\d]{4})/,
-    /…([\d]{4})/,          // ellipsis character
+    /…([\d]{4})/,
     /x{1,4}([\d]{4})\b/i,
     /ending in ([\d]{4})/i,
     /\*+([\d]{4})/,
     /last 4[:\s]+([\d]{4})/i,
-    /[·•\-]([\d]{4})\b/,
+    /[·•]([\d]{4})\b/,
     /account[^\d]{0,20}([\d]{4})\b/i,
     /acct[^\d]{0,10}([\d]{4})\b/i,
-    // "5604" appearing after account type words in the page title area
     /(?:checking|savings|credit card|card)[^\d]{0,30}([\d]{4})\b/i,
-    // Last 4 digits of a sequence like "...1234" anywhere
     /(?<!\d)([\d]{4})(?!\d)(?=\s*$)/m,
   ];
   for (const p of patterns) {
     const m = text.match(p);
     if (m) return m[1];
+  }
+  // Aggressive fallback: find any 4-digit number near account-related context
+  const ctx = text.match(/(?:account|acct|card|chk|sav|checking|savings|credit)[^\d]{0,60}(\d{4})/i);
+  if (ctx) return ctx[1];
+  // Last resort: first standalone 4-digit number that isn't a year (1900-2099)
+  const all = [...text.matchAll(/(?<!\d)(\d{4})(?!\d)/g)];
+  for (const m of all) {
+    const n = parseInt(m[1]);
+    if (n < 1900 || n > 2099) return m[1];
   }
   return 'XXXX';
 }
@@ -174,10 +181,11 @@ function parseTransactions(text: string, bankName: string): ExtractedTransaction
     desc = desc.replace(/[\s\-.,]+$/, '').trim();
 
     if (!desc || desc.length < 3) continue;
-    // Skip employee/sub-account lines: "Name - XXXX" or "First Last - XXXX"
-    if (/^[A-Za-z][A-Za-z .'-]+ - \d{4}$/.test(desc)) continue;
-    // Skip BoA UI chrome lines (not real transactions)
-    if (/ready to help|bank of america.*\d{4}/i.test(desc)) continue;
+    // Skip employee/sub-account card lines: only 1-3 words then " - XXXX" (no other content)
+    // e.g. "Tom Williamson - 0389", "Jesse - 5368", "Brenden Foy - 6161"
+    if (/^[A-Za-z][A-Za-z'-]{1,20}(?:\s[A-Za-z][A-Za-z'-]{1,20}){0,2}\s*-\s*\d{4}$/.test(desc)) continue;
+    // Skip BoA UI chrome lines
+    if (/ready to help/i.test(desc)) continue;
 
     // Determine transaction type
     let txnType = 'other';
