@@ -282,6 +282,25 @@ function extractBalances(text: string): {
     }
   }
 
+  // Fallback: if still no balance found, find the largest dollar amount on the page
+  // that isn't a transaction amount (i.e., appears near the top or near balance keywords)
+  if (!result.current && !result.available) {
+    const allAmounts: number[] = [];
+    for (const line of lines) {
+      const m = line.match(/\$\s*([\d,]+\.\d{2})/g);
+      if (m) {
+        m.forEach(s => {
+          const v = parseMoney(s);
+          if (v !== null && v >= 0) allAmounts.push(v);
+        });
+      }
+    }
+    // Use the largest amount as the current balance (most likely the main account balance)
+    if (allAmounts.length > 0) {
+      result.current = Math.max(...allAmounts);
+    }
+  }
+
   return result;
 }
 
