@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs';
 import { getDb } from './db';
 import { extractFromImage } from './extract';
 import { makeFingerprint } from './dedup';
@@ -49,6 +50,16 @@ export async function ingestFile(filePath: string): Promise<{ ok: boolean; messa
         .run('Could not read image', screenshotId);
       return { ok: false, message: `Could not read image: ${filename}` };
     }
+
+    // Write OCR debug log for troubleshooting
+    try {
+      const dbDir = path.join(process.cwd(), 'db');
+      if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dbDir, `ocr-${filename}.txt`),
+        `BANK: ${result.account.bankName}\nTYPE: ${result.account.accountType}\nLAST4: ${result.account.accountLast4}\nBALANCE: ${result.account.currentBalance}\nAVAIL: ${result.account.availableBalance}\n\n--- RAW OCR ---\n${result.rawText}`
+      );
+    } catch { /* ignore debug failures */ }
 
     // Dedicated Bank SS folder — process everything, no keyword filter needed
     const { account, transactions } = result;

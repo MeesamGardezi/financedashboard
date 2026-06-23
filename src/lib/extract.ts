@@ -40,7 +40,7 @@ const BANK_PATTERNS: { name: string; patterns: RegExp[] }[] = [
   { name: 'Chase', patterns: [/chase/i, /jpmorgan/i, /j\.p\. morgan/i] },
   { name: 'Bank of America', patterns: [/bank of america/i, /bankofamerica/i, /boa\b/i, /b of a/i] },
   { name: 'TD Bank', patterns: [/\btd bank\b/i, /td business/i, /td premier/i] },
-  { name: 'Eastern Bank', patterns: [/eastern bank/i, /eastern savings/i] },
+  { name: 'Eastern Bank', patterns: [/eastern bank/i, /eastern savings/i, /\beastern\b/i] },
   { name: 'US Bank', patterns: [/u\.s\. bank/i, /us bank/i, /usbank/i] },
 ];
 
@@ -137,10 +137,8 @@ function parseTransactions(text: string, bankName: string): ExtractedTransaction
     const dateCandidate = parseDate(line);
     if (dateCandidate) currentDate = dateCandidate;
 
-    // Skip header-like lines and employee card name lines (e.g. "Tom Williamson - 0389")
+    // Skip header-like lines
     if (/^(date|description|amount|balance|type|transaction|debit|credit|posted|pending)$/i.test(line)) continue;
-    // Skip employee card holder lines: "Name Name - XXXX" with no dollar amount
-    if (/^[A-Z][a-z]+ [A-Z][a-z]+ - \d{4}/.test(line) && !line.includes('$')) continue;
 
     // Look for amount patterns on this line
     const amountMatches = line.match(/[-−]?\$[\d,]+\.\d{2}/g) || line.match(/[-−]?\d+,\d{3}\.\d{2}/g);
@@ -173,6 +171,8 @@ function parseTransactions(text: string, bankName: string): ExtractedTransaction
       .trim();
 
     if (!desc || desc.length < 3) continue;
+    // Skip employee card holder lines like "Tom Williamson - 0389" or "Mike Dulaski - 4878"
+    if (/^[A-Z][a-z]+ [A-Z][a-z]+\s*-\s*\d{4}\.?$/.test(desc)) continue;
 
     // Determine transaction type
     let txnType = 'other';
@@ -234,18 +234,21 @@ function extractBalances(text: string): {
   const lines = text.split('\n').map(l => l.trim());
 
   // Helper: get money from this line OR the next 1-2 lines (label on one line, value on next)
+  // Requires a proper dollar amount with decimal (avoids matching page numbers)
   function getMoneyNearby(idx: number): number | null {
-    const val = parseMoney(lines[idx]);
+    function extractDollar(line: string): number | null {
+      // Prefer $XX.XX format
+      const m = line.match(/\$\s*([\d,]+\.\d{2})/);
+      if (m) { const v = parseFloat(m[1].replace(/,/g, '')); return isNaN(v) ? null : v; }
+      // Also accept plain XX,XXX.XX
+      const m2 = line.match(/\b([\d]{1,3}(?:,\d{3})*\.\d{2})\b/);
+      if (m2) { const v = parseFloat(m2[1].replace(/,/g, '')); return isNaN(v) ? null : v; }
+      return null;
+    }
+    const val = extractDollar(lines[idx]);
     if (val !== null) return val;
-    // Check next line
-    if (idx + 1 < lines.length) {
-      const v2 = parseMoney(lines[idx + 1]);
-      if (v2 !== null) return v2;
-    }
-    if (idx + 2 < lines.length) {
-      const v3 = parseMoney(lines[idx + 2]);
-      if (v3 !== null) return v3;
-    }
+    if (idx + 1 < lines.length) { const v2 = extractDollar(lines[idx + 1]); if (v2 !== null) return v2; }
+    if (idx + 2 < lines.length) { const v3 = extractDollar(lines[idx + 2]); if (v3 !== null) return v3; }
     return null;
   }
 
@@ -282,22 +285,29 @@ function extractBalances(text: string): {
     }
   }
 
-  // Fallback: if still no balance found, find the largest dollar amount on the page
-  // that isn't a transaction amount (i.e., appears near the top or near balance keywords)
+  // Fallback: if still no balance found, find the first prominent dollar amount
+  // in the top third of the page (most likely the account balance header)
   if (!result.current && !result.available) {
-    const allAmounts: number[] = [];
-    for (const line of lines) {
-      const m = line.match(/\$\s*([\d,]+\.\d{2})/g);
+    const topLines = lines.slice(0, Math.max(1, Math.ceil(lines.length / 3)));
+    for (const line of topLines) {
+      const m = line.match(/\$\s*([\d,]+\.\d{2})/);
       if (m) {
-        m.forEach(s => {
-          const v = parseMoney(s);
-          if (v !== null && v >= 0) allAmounts.push(v);
-        });
+        const v = parseMoney(m[0]);
+        if (v !== null && v >= 0) {
+          result.current = v;
+          break;
+        }
       }
     }
-    // Use the largest amount as the current balance (most likely the main account balance)
-    if (allAmounts.length > 0) {
-      result.current = Math.max(...allAmounts);
+    // If still nothing, try the largest amount in the top half
+    if (!result.current) {
+      const halfLines = lines.slice(0, Math.max(1, Math.ceil(lines.length / 2)));
+      const allAmounts: number[] = [];
+      for (const line of halfLines) {
+        const ms = line.match(/\$\s*([\d,]+\.\d{2})/g);
+        if (ms) ms.forEach(s => { const v = parseMoney(s); if (v !== null && v >= 0) allAmounts.push(v); });
+      }
+      if (allAmounts.length > 0) result.current = Math.max(...allAmounts);
     }
   }
 
